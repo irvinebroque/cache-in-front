@@ -7,7 +7,10 @@ export default {
 		// Simulate expensive work
 		await sleep(4000); // 4 seconds
 
-		return new Response('Hello World!', {
+		const url = new URL(request.url);
+		const message = `Hello from ${url.pathname}!`;
+
+		return new Response(message, {
 			headers: {
 				'Cache-Control': 'public, max-age=3600',
 				'Content-Type': 'text/plain'
