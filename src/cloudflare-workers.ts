@@ -1,13 +1,27 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { cachedFetch } from './cachedFetch';
 
-export class CacheableWorker extends WorkerEntrypoint {
-  async fetch(request: Request): Promise<Response> {
-    const handler = cachedFetch(async (req, env, ctx) => {
+export class CacheableWorker implements WorkerEntrypoint {
+  env: any;
+  ctx: ExecutionContext;
+
+  constructor() {
+    this.env = {};
+    this.ctx = {
+      waitUntil: () => {},
+      passThroughOnException: () => {}
+    };
+  }
+
+  async fetch(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {
+    this.env = env;
+    this.ctx = ctx;
+    
+    const handler = cachedFetch(async (req) => {
       return this.fetchWithCache(req);
     });
     
-    return handler(request, this.env, this.ctx);
+    return handler(request, env, ctx);
   }
 
   protected async fetchWithCache(request: Request): Promise<Response> {
