@@ -2,13 +2,8 @@ import { CacheableWorker } from './cloudflare-workers';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export class Worker extends CacheableWorker {
+export default class MyWorker extends CacheableWorker {
   async fetch(request: Request): Promise<Response> {
-    return this.fetchWithCache(request);
-  }
-
-  // Override the default 404 implementation from CacheableWorker
-  async fetchWithCache(request: Request): Promise<Response> {
     // Simulate expensive work
     await sleep(4000); // 4 seconds
 
@@ -23,5 +18,3 @@ export class Worker extends CacheableWorker {
     });
   }
 }
-
-export default Worker;
