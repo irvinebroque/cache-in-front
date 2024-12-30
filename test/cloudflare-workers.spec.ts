@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CacheableWorker } from '../src/cloudflare-workers';
+import './types';
 
 class TestWorker extends CacheableWorker {
   protected async fetchWithCache(request: Request): Promise<Response> {
