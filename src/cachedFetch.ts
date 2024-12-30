@@ -64,8 +64,9 @@ export const cachedFetch = (
 	if (!reqCacheControl.has('no-cache')) {
 		const cachedResponse = await cache.match(cacheKey);
 		if (cachedResponse) {
-			// Honor max-age in request
-			const maxAge = reqCacheControl.get('max-age');
+			// Check if cached response is still fresh based on its max-age
+			const respCacheControl = parseCacheControl(cachedResponse.headers.get('cache-control'));
+			const maxAge = respCacheControl.get('max-age');
 			if (maxAge) {
 				const age = parseInt(maxAge);
 				if (!isNaN(age)) {
@@ -74,8 +75,6 @@ export const cachedFetch = (
 						return cachedResponse;
 					}
 				}
-			} else {
-				return cachedResponse;
 			}
 		}
 	}
