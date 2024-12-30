@@ -11,8 +11,14 @@
  * Learn more at https://developers.cloudflare.com/workers/
  */
 
-export default {
-	async fetch(request, env, ctx): Promise<Response> {
-		return new Response('Hello World!');
+const createHandler = (
+	handler: (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>
+): ExportedHandler<Env> => ({
+	async fetch(request, env, ctx) {
+		return handler(request, env, ctx);
 	},
-} satisfies ExportedHandler<Env>;
+});
+
+export default createHandler(async (request, env, ctx) => {
+	return new Response('Hello World!');
+});
