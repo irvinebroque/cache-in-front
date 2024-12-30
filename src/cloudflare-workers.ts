@@ -1,31 +1,98 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { cachedFetch } from './cachedFetch';
 
-export class CacheableWorker implements WorkerEntrypoint {
-  env: any;
-  ctx: ExecutionContext;
+const parseCacheControl = (header: string | null) => {
+	if (!header) return new Map<string, string>();
+	
+	const directives = new Map<string, string>();
+	header.split(',').forEach(directive => {
+		const [key, value] = directive.trim().toLowerCase().split('=');
+		directives.set(key, value || 'true');
+	});
+	return directives;
+};
 
-  constructor() {
-    this.env = {};
-    this.ctx = {
-      waitUntil: () => {},
-      passThroughOnException: () => {}
-    };
+const isCacheable = (response: Response): boolean => {
+	const cacheControl = parseCacheControl(response.headers.get('cache-control'));
+	
+	// Check no-store directive first - it takes precedence
+	if (cacheControl.has('no-store')) return false;
+
+	// Private responses can be cached in browser/client caches
+	if (cacheControl.has('private')) return true;
+	
+	// Public responses can be cached anywhere
+	if (cacheControl.has('public')) return true;
+
+	// Check max-age and s-maxage
+	const maxAge = cacheControl.get('max-age');
+	const sMaxAge = cacheControl.get('s-maxage');
+	
+	if (maxAge) {
+		const age = parseInt(maxAge);
+		if (!isNaN(age) && age > 0) return true;
+	}
+
+	if (sMaxAge) {
+		const age = parseInt(sMaxAge);
+		if (!isNaN(age) && age > 0) return true;
+	}
+
+	return false;
+};
+
+export class CacheableWorker extends WorkerEntrypoint {
+
+  async fetchWithCache(request: Request): Promise<Response> {
+    return this.fetch(request)
   }
 
-  async fetch(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {
-    this.env = env;
-    this.ctx = ctx;
-    
-    const handler = cachedFetch(async (req) => {
-      return this.fetchWithCache(req);
+  async fetch(request: Request): Promise<Response> {
+    // Only cache GET requests
+    if (request.method !== 'GET') {
+      return super.fetch(request);
+    }
+
+    const cache = caches.default;
+    const cacheKey = new Request(request.url, {
+      method: 'GET',
+      headers: request.headers
     });
-    
-    return handler(request, env, ctx);
-  }
 
-  protected async fetchWithCache(request: Request): Promise<Response> {
-    // Default implementation returns 404, should be overridden by subclasses
-    return new Response('Not Found', { status: 404 });
+    // Check request cache-control directives
+    const reqCacheControl = parseCacheControl(request.headers.get('cache-control'));
+    
+    // Honor no-store in request
+    if (reqCacheControl.has('no-store')) {
+      return super.fetch(request);
+    }
+
+    // Try to find cached response if not no-cache
+    if (!reqCacheControl.has('no-cache')) {
+      const cachedResponse = await cache.match(cacheKey);
+      if (cachedResponse) {
+        // Check if cached response is still fresh based on its max-age
+        const respCacheControl = parseCacheControl(cachedResponse.headers.get('cache-control'));
+        const maxAge = respCacheControl.get('max-age');
+        if (maxAge) {
+          const age = parseInt(maxAge);
+          if (!isNaN(age)) {
+            const responseDate = new Date(cachedResponse.headers.get('date') || '').getTime();
+            if (Date.now() - responseDate <= age * 1000) {
+              return cachedResponse;
+            }
+          }
+        }
+      }
+    }
+
+    // Get fresh response from handler
+    const response = await super.fetch(request)
+
+    // If response is cacheable, store it in the cache
+    if (isCacheable(response)) {
+      this.ctx.waitUntil(cache.put(cacheKey, response.clone()));
+    }
+
+    return response;
   }
 }
