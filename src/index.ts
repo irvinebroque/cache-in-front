@@ -12,7 +12,7 @@ export default {
 		
 		return new Response(message, {
 			headers: {
-				'Cache-Control': 'public, max-age=3600',
+				'Cache-Control': 'public, max-age=360000',
 				'Content-Type': 'text/plain'
 			}
 		});
