@@ -9,6 +9,8 @@ export default {
 
 		const url = new URL(request.url);
 		const message = `Hello from ${url.pathname}!`;
+		
+		console.log(`Handling request for URL: ${request.url}`);
 
 		return new Response(message, {
 			headers: {
