@@ -1,19 +1,41 @@
-const isCacheable = (response: Response): boolean => {
-	const cacheControl = response.headers.get('cache-control');
-	if (!cacheControl) return false;
+const parseCacheControl = (header: string | null) => {
+	if (!header) return new Map<string, string>();
+	
+	const directives = new Map<string, string>();
+	header.split(',').forEach(directive => {
+		const [key, value] = directive.trim().toLowerCase().split('=');
+		directives.set(key, value || 'true');
+	});
+	return directives;
+};
 
-	// Parse cache-control directives
-	const directives = cacheControl.split(',').map(d => d.trim().toLowerCase());
+const isCacheable = (response: Response): boolean => {
+	const cacheControl = parseCacheControl(response.headers.get('cache-control'));
 	
-	// Check for no-store directive which prohibits caching
-	if (directives.includes('no-store')) return false;
+	// Check no-store directive first - it takes precedence
+	if (cacheControl.has('no-store')) return false;
+
+	// Private responses can be cached in browser/client caches
+	if (cacheControl.has('private')) return true;
 	
-	// Check for max-age directive
-	const maxAgeDirective = directives.find(d => d.startsWith('max-age='));
-	if (!maxAgeDirective) return false;
+	// Public responses can be cached anywhere
+	if (cacheControl.has('public')) return true;
+
+	// Check max-age and s-maxage
+	const maxAge = cacheControl.get('max-age');
+	const sMaxAge = cacheControl.get('s-maxage');
 	
-	const maxAge = parseInt(maxAgeDirective.split('=')[1]);
-	return maxAge > 0;
+	if (maxAge) {
+		const age = parseInt(maxAge);
+		if (!isNaN(age) && age > 0) return true;
+	}
+
+	if (sMaxAge) {
+		const age = parseInt(sMaxAge);
+		if (!isNaN(age) && age > 0) return true;
+	}
+
+	return false;
 };
 
 export const cachedFetch = (
@@ -30,14 +52,36 @@ export const cachedFetch = (
 		headers: request.headers
 	});
 
-	// Try to find cached response
-	let response = await cache.match(cacheKey);
-	if (response) {
-		return response;
+	// Check request cache-control directives
+	const reqCacheControl = parseCacheControl(request.headers.get('cache-control'));
+	
+	// Honor no-store in request
+	if (reqCacheControl.has('no-store')) {
+		return handler(request, env, ctx);
+	}
+
+	// Try to find cached response if not no-cache
+	if (!reqCacheControl.has('no-cache')) {
+		const cachedResponse = await cache.match(cacheKey);
+		if (cachedResponse) {
+			// Honor max-age in request
+			const maxAge = reqCacheControl.get('max-age');
+			if (maxAge) {
+				const age = parseInt(maxAge);
+				if (!isNaN(age)) {
+					const responseDate = new Date(cachedResponse.headers.get('date') || '').getTime();
+					if (Date.now() - responseDate <= age * 1000) {
+						return cachedResponse;
+					}
+				}
+			} else {
+				return cachedResponse;
+			}
+		}
 	}
 
 	// Get fresh response from handler
-	response = await handler(request, env, ctx);
+	const response = await handler(request, env, ctx);
 
 	// If response is cacheable, store it in the cache
 	if (isCacheable(response)) {
